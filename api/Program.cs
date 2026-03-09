@@ -1,8 +1,42 @@
+using api.Data;
+using api.Services;
+using Microsoft.EntityFrameworkCore;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
+
+var connectionString = builder.Configuration.GetConnectionString("FlowFactorTodo");
+
+// Add services to the container.
+builder.Services.AddControllers();
+builder.Services.AddScoped<ITaskService, TaskService>();
+// Register the database context
+builder.Services.AddSqlite<AppDbContext>(connectionString);
+
+// Configuration CORS pour permettre les requêtes du frontend
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowFrontend",
+        policy =>
+        {
+            policy.WithOrigins(
+                    "http://localhost:3000", 
+                    "http://frontend:80",     // Pour Docker
+                    "http://flowfactor-frontend:80"
+                )
+                .AllowAnyHeader()
+                .AllowAnyMethod();
+        });
+});
+
+// Utilisation du chemin correct pour la base de données en production
+if (builder.Environment.IsProduction())
+{
+    // Le volume Docker monte le dossier /app/data
+    builder.Configuration["ConnectionStrings:DefaultConnection"] = 
+        "Data Source=/app/data/flowfactortodo.db";
+}
 
 var app = builder.Build();
 
@@ -12,30 +46,10 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-app.UseHttpsRedirection();
+app.UseCors("AllowFrontend");
+app.UseAuthorization();
+app.MapControllers();
 
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
-
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
+await app.MigrateDbAsync();
 
 app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
